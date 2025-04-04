@@ -3,7 +3,7 @@
 
 
 frappe.ui.form.on("AI-Driven Test Case Builder", {
-    refresh(frm) {
+    refreh(frm) {
 
         frm.add_custom_button(__('Generate Test Cases'), function() {
             frappe.call({
