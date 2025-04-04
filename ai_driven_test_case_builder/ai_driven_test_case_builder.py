@@ -8,10 +8,11 @@ import pandas as pd
 import io
 import unittest
 import sys
+import textwrap
+import inspect
+import ast
 import os
 import re
-# from frappe-bench.sites.test_text_classification_model
-# import TestClass
 
 
 @frappe.whitelist()
@@ -24,102 +25,106 @@ def openai_api(docname, doc, script):
 	chat_completion = client.chat.completions.create(
     	messages=[
 			{"role": "system", "content": "You are software engineer"},
-        	{"role": "user", "content": "Here is my python code, Write test cases for it in python. Respond with only the generated code so that I can run it without adjustments. Name the class TestClass(unittest.TestCase)." + script,}
+        	{"role": "user", "content": "Here is my python code, Write test cases for it in python. Respond with only the generated code so that I can run it without adjustments. Name the class TestClass(unittest.TestCase). All the test methods should be self-contained" + script,}
     	],
     	model="gpt-4o-mini",
 	)
 	
 	response = chat_completion.choices[0].message.content
-	script = clean_script(response)
 	print(response)
 
-	print("Method Pattern::::::::::::::::::::::::::::::::::::::::::: ")
-	method_pattern = r"def\s+(\w+)\s*\("
-	print(method_pattern)
-
-	method_calls = re.findall(method_pattern, script)
-	print("Method method_calls::::::::::::::::::::::::::::::::::::::::::: ")
-	print(method_calls)
-
-	file_path = "test_text_classification_model.py"
-
-	with open(file_path, "w") as file:
-		file.write(response)
-
-	print(f"Python file '{file_path}' created successfully and the test class code has been added.")
-   
-	# method_list= ['setup', 'test_training_dataframe', 'test_testing_dataframe', 'test_model_training_and_prediction']
-
-    # return (success, chat gpt generated test cases,method_list)
-	return {"status": "Success", "testcase": response, "method_calls": method_calls}
+	return {"status": "Success", "message": response}
 
 @frappe.whitelist()
-def execute_tests(script, function):
-	script = clean_script(script)
-	before_exec = set(globals().keys())
-	print("Execute::::::::::::::::::::::::::::::::::::::::::: ")
+def load_test_class(script):
+    # Remove previously defined TestCase subclasses from globals
+    to_delete = [
+        name for name, obj in globals().items()
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase)
+    ]
+    for name in to_delete:
+        globals().pop(name)
 
-	# Execute the provided code
-	exec(script, globals())
+    #cleans script
+    script = clean_script(script)
 
-	print("New Global::::::::::::::::::::::::::::::::::::::::::: ")
+    
+    # Execute the new script
+    before_exec = set(globals().keys())
+    exec(script, globals())
 
-	#
-	# Capture new functions and classes
-	new_globals = {
-		name: obj for name, obj in globals().items()
-		if name not in before_exec
-	}
-	# print("Method Pattern::::::::::::::::::::::::::::::::::::::::::: ")
-	# method_pattern = r"def\s+(\w+)\s*\("
-	# print(method_pattern)
+    # Get the new test class
+    new_test_classes = [
+        obj for name, obj in globals().items()
+        if name not in before_exec and isinstance(obj, type) and issubclass(obj, unittest.TestCase)
+    ]
 
-	# method_calls = re.findall(method_pattern, script)
-	# print("Method method_calls::::::::::::::::::::::::::::::::::::::::::: ")
-	
-	# print(method_calls)
-	print("Script Start Looping::::::::::::::::::::::::::::::::::::::::::: ")
-	result_string = ""
-# for function in method_calls:
-	if function != "setUp":
-		print(f"Function:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::")
-		print(f"{function}")
-		try:
-			print("-----------------------------------------------------")
-			test_case = new_globals["TestClass"]
-			test_suite = unittest.TestLoader().loadTestsFromName(f"{test_case.__module__}.{test_case.__name__}.{function}")
-			
-			# Run the test
-			unittest.TextTestRunner().run(test_suite)
-			
-			print(f"Function Passed:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::")
-			# print(f"{function._name_}: PASSED")
-			result_string += "\n" + function + ": PASSED"
-			# print(result_string)
-			print("-----------------------------------------------------")
-			
-			# test_method = function
-		except AssertionError as e:
-			result_string += "\n" + function + ": FAILED"
-			# print(f"{function._name_}: FAILED ({e})")
-			print(f"Function failed:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::") 
+    if not new_test_classes:
+        raise Exception("No TestCase class found.")
+    
+    return new_test_classes[0]
 
-	result_string += "\nTest Completed: "
-	print(f"Test end----------------------------" +result_string)
-	
-	return result_string
+    
+@frappe.whitelist()
+def get_test_methods(script):
+    script = clean_script(script)
+    script = textwrap.dedent(script)
+    tree = ast.parse(script)
+
+    method_data = {}
+    lines = script.splitlines()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+            # Get starting and ending line number
+            start = node.lineno - 1
+            end = node.end_lineno if hasattr(node, 'end_lineno') else start + 1
+
+            # Grab method body and strip "def"
+            body_lines = lines[start:end]
+            if body_lines[0].startswith("def "):
+                body_lines[0] = body_lines[0].replace("def ", "", 1)
+
+            method_data[node.name + "(self)"] = "\n".join(body_lines)
+
+    return method_data
+
+
+@frappe.whitelist()
+def run_single_test(script, method_name):
+    test_class = load_test_class(script)
+
+    method_name = method_name.split("(")[0]  # remove "(self)" if present
+    test_instance = test_class(method_name)
+
+    output_capture = io.StringIO()
+    sys.stdout = output_capture
+
+    result = unittest.TextTestRunner(stream=output_capture, verbosity=2).run(
+        unittest.TestSuite([test_instance])
+    )
+
+    sys.stdout = sys.__stdout__
+
+    return {
+        "output": output_capture.getvalue(),
+        "failures": len(result.failures),
+        "errors": len(result.errors),
+        "wasSuccessful": result.wasSuccessful()
+    }
+
 
 def clean_script(script):
-		script = script.strip()
-	
-		if script.startswith("```") and script.endswith("```"): 
-			script = script[3:-3].strip() 
-	
-		if script.startswith("python"):
-			script = script[len("python"):].lstrip()  # Remove 'python' and leading whitespace
-	
-		return script
-	
+    script = script.strip()
+
+    if script.startswith("```") and script.endswith("```"): 
+        script = script[3:-3].strip() 
+
+    if script.startswith("python"):
+        script = script[len("python"):].lstrip()  # Remove 'python' and leading whitespace
+
+    return script
+
 
 class AIDrivenTestCaseBuilder(Document):
 	pass
