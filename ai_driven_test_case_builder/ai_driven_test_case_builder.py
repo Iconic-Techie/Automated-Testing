@@ -35,6 +35,28 @@ def openai_api(docname, doc, script):
 
 	return {"status": "Success", "message": response}
 
+
+@frappe.whitelist()
+def openai_code_improvement(script):
+    
+	client = OpenAI(
+    	api_key="enter your api key here",  
+	)
+
+	chat_completion = client.chat.completions.create(
+    	messages=[
+			{"role": "system", "content": "You are software engineer"},
+        	{"role": "user", "content": "I have Python code. Please rewrite it in at least 5 more efficient versions. Return just the code for each version, no extra explanation. \""+ script+"\""}
+    	],
+    	model="gpt-4o-mini",
+	)
+	
+	response = chat_completion.choices[0].message.content
+	print(response)
+
+	return {"status": "Success", "message": response}
+
+
 @frappe.whitelist()
 def load_test_class(script):
     # Remove previously defined TestCase subclasses from globals
@@ -88,6 +110,7 @@ def get_test_methods(script):
             method_data[node.name + "(self)"] = "\n".join(body_lines)
 
     return method_data
+
 
 
 @frappe.whitelist()
