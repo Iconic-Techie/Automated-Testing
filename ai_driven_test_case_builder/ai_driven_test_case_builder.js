@@ -1,10 +1,10 @@
 // Copyright (c) 2025, Shruti Gupta and contributors 
 // For license information, please see license.txt
 
-
 frappe.ui.form.on("AI-Driven Test Case Builder", {
     refresh(frm) {
 
+        //generate test cases button
         frm.add_custom_button(__('Generate Test Cases'), function() {
             frappe.call({
                 method: "library_management.library_management.doctype.ai_driven_test_case_builder.ai_driven_test_case_builder.openai_api",
@@ -14,7 +14,6 @@ frappe.ui.form.on("AI-Driven Test Case Builder", {
                     doc: frm.doc
                 },
                 callback: function(response) {
-
                     if (response.message) {
                         frm.set_value("unit_testing_script", response.message.message); // Set the generated test case in the form field
                         frm.refresh_field("unit_testing_script"); // Refresh the field to show the updated value
@@ -60,8 +59,119 @@ frappe.ui.form.on("AI-Driven Test Case Builder", {
                 }
             });
         }, __("Generate Unit Tests"));
+
+        //Custom Button of Code Recommendations
+        frm.add_custom_button(__('Code Recommendations'), function() {
+            frappe.call({
+                method: "library_management.library_management.doctype.ai_driven_test_case_builder.ai_driven_test_case_builder.openai_code_improvement",
+                args: {
+                    script: frm.doc.script
+                },
+                callback: function(response) {
+                    if (response.message) {
+                        console.log("Recommendation Response:", response.message);
+    
+    
+                        const results = response.message.message;
+                        console.log("Recommended codes:" + results);
+    
+                        const programs = [];
+                        const regex = /```python([\s\S]*?)```/g;
+                        let match;
+    
+                        while ((match = regex.exec(results)) !== null) {
+                        programs.push(match[1].trim());
+                        }
+    
+                        console.log(programs);
+                        frm.clear_table("recommended_code_listings");
+                    
+                        // Add each result to the table
+                        let index = 1;
+                        for (const code_recommendation in programs) {
+                            const code_applied = programs[code_recommendation];
+                    
+                            frm.add_child("recommended_code_listings", {
+                                version: `Version ${index}`,
+                                script: code_applied
+                            });
+                    
+                            index++;
+                        }
+                
+                        // Refresh the table field to show updated rows
+                        frm.refresh_field("recommended_code_listings");
+    
+    
+                    }
+                    else {
+                        frappe.msgprint(__('No Recommendation generated. Please check the script or try again.'));
+                        console.error("Error in Generation recommendation:", response);
+                    }
+                }
+            });
+        }, __("Code Recommendations"));
     }
 });
+
+
+
+// Field Code Recommendations Button of Type button
+frappe.ui.form.on('AI-Driven Test Case Builder', {
+    code_recommendations: function(frm) {
+
+        frappe.call({
+            method: "library_management.library_management.doctype.ai_driven_test_case_builder.ai_driven_test_case_builder.openai_code_improvement",
+            args: {
+                script: frm.doc.script
+            },
+            callback: function(response) {
+                if (response.message) {
+                    console.log("Recommendation Response:", response.message);
+
+
+                    const results = response.message.message;
+                    console.log("Recommended codes:" + results);
+
+                    const programs = [];
+                    const regex = /```python([\s\S]*?)```/g;
+                    let match;
+
+                    while ((match = regex.exec(results)) !== null) {
+                    programs.push(match[1].trim());
+                    }
+
+                    console.log(programs);
+                    frm.clear_table("recommended_code_listings");
+                
+                    // Add each result to the table
+                    let index = 1;
+                    for (const code_recommendation in programs) {
+                        const code_applied = programs[code_recommendation];
+                
+                        frm.add_child("recommended_code_listings", {
+                            version: `Version ${index}`,
+                            script: code_applied
+                        });
+                
+                        index++;
+                    }
+            
+                    // Refresh the table field to show updated rows
+                    frm.refresh_field("recommended_code_listings");
+
+
+                }
+                else {
+                    frappe.msgprint(__('No Recommendation generated. Please check the script or try again.'));
+                    console.error("Error in Generation recommendation:", response);
+                }
+            }
+        });
+    }
+
+})
+
 frappe.ui.form.on('Test Cases Execution', {
     run_test: function (frm, cdt, cdn) {
         const row = locals[cdt][cdn];
